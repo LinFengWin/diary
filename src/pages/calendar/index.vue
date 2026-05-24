@@ -4,7 +4,7 @@
       <button class="nav" @click="changeMonth(-1)">‹</button>
       <view class="month-title">
         <text>{{ currentYear }} 年 {{ currentMonth }} 月</text>
-        <text class="month-sub">{{ selectedList.length }} 篇选中日期记录</text>
+        <text class="month-sub">{{ monthDiaryCount }} 篇日记 · 未来日期不可补记</text>
       </view>
       <button class="nav" @click="changeMonth(1)">›</button>
     </view>
@@ -15,17 +15,33 @@
         v-for="(cell, index) in cells"
         :key="index"
         class="day"
-        :class="{ blank: !cell, selected: cell && cell.key === selectedDate, today: cell && cell.key === todayKey }"
-        @click="cell && selectDate(cell.key)"
+        :class="{
+          blank: !cell,
+          selected: cell && cell.key === selectedDate,
+          today: cell && cell.key === todayKey,
+          future: cell && isFutureDate(cell.key),
+          recorded: cell && markedDates.has(cell.key)
+        }"
+        :style="cellStyle(cell)"
+        @click="cell && selectDate(cell)"
       >
-        <text v-if="cell">{{ cell.day }}</text>
-        <view v-if="cell && markedDates.has(cell.key)" class="dot"></view>
+        <template v-if="cell">
+          <text class="day-number">{{ cell.day }}</text>
+          <text v-if="calendarMeta[cell.key]?.mood" class="mood-mark">
+            {{ calendarMeta[cell.key].mood.emoji }}
+          </text>
+          <text v-if="calendarMeta[cell.key]?.holiday" class="holiday">
+            {{ calendarMeta[cell.key].holiday }}
+          </text>
+        </template>
       </view>
     </view>
 
     <view class="section-head">
-      <text class="section-title">{{ formatDate(selectedDate) }}</text>
-      <text class="write-link" @click="writeSelected">补记</text>
+      <text class="section-title">{{ selectedDate ? formatDate(selectedDate) : '请选择已到日期' }}</text>
+      <text class="write-link" :class="{ disabled: !canWriteSelected }" @click="writeSelected">
+        {{ canWriteSelected ? '补记' : '不可补记' }}
+      </text>
     </view>
 
     <view v-if="selectedList.length" class="list">
@@ -39,8 +55,8 @@
     </view>
 
     <view v-else class="empty">
-      <text>这天还没有记录</text>
-      <button @click="writeSelected">写一篇</button>
+      <text>{{ canWriteSelected ? '这天还没有记录' : '未来日期还不能写日记' }}</text>
+      <button v-if="canWriteSelected" @click="writeSelected">写一篇</button>
     </view>
   </view>
 </template>
@@ -48,38 +64,103 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getDiariesByDate, getDiaryDates } from '@/utils/storage'
+import { getDiaries, getDiariesByDate } from '@/utils/storage'
 import { getMood } from '@/utils/constants'
-import { formatDate, formatTime, getMonthGrid, toDateKey } from '@/utils/date'
+import {
+  compareDateKey,
+  formatDate,
+  formatTime,
+  getHolidayLabel,
+  getMonthGrid,
+  isFutureDate,
+  pad,
+  toDateKey
+} from '@/utils/date'
 import { requireUnlock } from '@/utils/locker'
 
 const now = new Date()
+const todayKey = toDateKey()
 const currentYear = ref(now.getFullYear())
 const currentMonth = ref(now.getMonth() + 1)
-const selectedDate = ref(toDateKey())
+const selectedDate = ref(todayKey)
 const markedDates = ref(new Set())
 const selectedList = ref([])
-const todayKey = toDateKey()
+const calendarMeta = ref({})
+const monthDiaryCount = ref(0)
 const weeks = ['日', '一', '二', '三', '四', '五', '六']
 
 const cells = computed(() => getMonthGrid(currentYear.value, currentMonth.value))
+const canWriteSelected = computed(() => selectedDate.value && !isFutureDate(selectedDate.value))
+
+function monthPrefix(year = currentYear.value, month = currentMonth.value) {
+  return `${year}-${pad(month)}`
+}
+
+function isFutureMonth(year, month) {
+  return compareDateKey(`${year}-${pad(month)}-01`, `${todayKey.slice(0, 7)}-01`) > 0
+}
+
+function defaultSelectedDate(year, month) {
+  if (isFutureMonth(year, month)) return ''
+  const prefix = monthPrefix(year, month)
+  return prefix === todayKey.slice(0, 7) ? todayKey : `${prefix}-01`
+}
+
+function dominantMood(diaries) {
+  const count = {}
+  diaries.forEach(item => {
+    count[item.moodId] = (count[item.moodId] || 0) + 1
+  })
+  const moodId = Object.keys(count).sort((a, b) => count[b] - count[a])[0]
+  return moodId ? getMood(moodId) : null
+}
 
 function refresh() {
-  markedDates.value = getDiaryDates(currentYear.value, currentMonth.value)
-  selectedList.value = getDiariesByDate(selectedDate.value)
+  const prefix = monthPrefix()
+  const groups = {}
+  getDiaries().forEach(item => {
+    if (!item.date?.startsWith(prefix)) return
+    groups[item.date] = groups[item.date] || []
+    groups[item.date].push(item)
+  })
+
+  const meta = {}
+  cells.value.forEach(cell => {
+    if (!cell) return
+    const diaries = groups[cell.key] || []
+    meta[cell.key] = {
+      mood: dominantMood(diaries),
+      holiday: getHolidayLabel(cell.key)
+    }
+  })
+
+  calendarMeta.value = meta
+  markedDates.value = new Set(Object.keys(groups))
+  monthDiaryCount.value = Object.values(groups).reduce((sum, list) => sum + list.length, 0)
+  selectedList.value = selectedDate.value ? getDiariesByDate(selectedDate.value) : []
 }
 
 function changeMonth(step) {
   const next = new Date(currentYear.value, currentMonth.value - 1 + step, 1)
   currentYear.value = next.getFullYear()
   currentMonth.value = next.getMonth() + 1
-  selectedDate.value = `${currentYear.value}-${String(currentMonth.value).padStart(2, '0')}-01`
+  selectedDate.value = defaultSelectedDate(currentYear.value, currentMonth.value)
   refresh()
 }
 
-function selectDate(date) {
-  selectedDate.value = date
-  selectedList.value = getDiariesByDate(date)
+function selectDate(cell) {
+  if (isFutureDate(cell.key)) {
+    uni.showToast({ title: '未来日期不能勾选或补记', icon: 'none' })
+    return
+  }
+  selectedDate.value = cell.key
+  selectedList.value = getDiariesByDate(cell.key)
+}
+
+function cellStyle(cell) {
+  if (!cell || cell.key === selectedDate.value || isFutureDate(cell.key)) return ''
+  const mood = calendarMeta.value[cell.key]?.mood
+  return mood ? `background:${mood.color};` : ''
 }
 
 function openDiary(id) {
@@ -87,6 +168,10 @@ function openDiary(id) {
 }
 
 function writeSelected() {
+  if (!canWriteSelected.value) {
+    uni.showToast({ title: '未来日期不能补记', icon: 'none' })
+    return
+  }
   uni.navigateTo({ url: `/pages/editor/index?date=${selectedDate.value}` })
 }
 
@@ -158,13 +243,17 @@ onShow(async () => {
 
 .day {
   position: relative;
-  height: 74rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  height: 86rpx;
   border-radius: 15px;
   color: $moo-text;
   background: $moo-bg;
   text-align: center;
-  line-height: 74rpx;
   font-size: 26rpx;
+  box-sizing: border-box;
 }
 
 .day.blank {
@@ -173,7 +262,7 @@ onShow(async () => {
 
 .day.today {
   color: $moo-primary;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .day.selected {
@@ -181,19 +270,44 @@ onShow(async () => {
   background: $moo-primary;
 }
 
-.dot {
-  position: absolute;
-  left: 50%;
-  bottom: 10rpx;
-  width: 8rpx;
-  height: 8rpx;
-  margin-left: -4rpx;
-  border-radius: 50%;
-  background: #f0b9c7;
+.day.future {
+  color: #b8c1c8;
+  background: #f1f3f4;
 }
 
-.selected .dot {
-  background: #ffffff;
+.day-number {
+  line-height: 1;
+}
+
+.mood-mark {
+  position: absolute;
+  right: 6rpx;
+  top: 4rpx;
+  font-size: 20rpx;
+  line-height: 1;
+}
+
+.holiday {
+  display: block;
+  max-width: 100%;
+  margin-top: 7rpx;
+  padding: 0 6rpx;
+  color: #d45d66;
+  font-size: 18rpx;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.selected .holiday {
+  color: #ffffff;
+}
+
+.future .holiday,
+.future .mood-mark {
+  opacity: 0.55;
 }
 
 .section-head {
@@ -212,6 +326,10 @@ onShow(async () => {
 .write-link {
   color: $moo-primary;
   font-size: 25rpx;
+}
+
+.write-link.disabled {
+  color: #aeb7bd;
 }
 
 .entry {

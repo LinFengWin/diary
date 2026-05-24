@@ -101,7 +101,7 @@
 import { reactive, ref, watch } from 'vue'
 import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { FIXED_TAGS, MOODS, WEATHERS } from '@/utils/constants'
-import { formatDate, toDateKey } from '@/utils/date'
+import { formatDate, isFutureDate, toDateKey } from '@/utils/date'
 import { deleteDiary, getDiary, saveDiary } from '@/utils/storage'
 import { requireUnlock } from '@/utils/locker'
 import { uploadImage } from '@/utils/api'
@@ -242,6 +242,10 @@ function removeImage(index) {
 }
 
 function submit() {
+  if (isFutureDate(form.date)) {
+    uni.showToast({ title: '未来日期不能补记', icon: 'none' })
+    return
+  }
   const saved = saveDiary({
     ...form,
     tags: composeTags()
@@ -271,7 +275,14 @@ function removeDiary() {
 }
 
 onLoad(query => {
-  if (query.date) form.date = query.date
+  if (query.date) {
+    if (isFutureDate(query.date)) {
+      form.date = toDateKey()
+      uni.showToast({ title: '未来日期不能补记，已回到今天', icon: 'none' })
+    } else {
+      form.date = query.date
+    }
+  }
   if (query.id) {
     const entry = getDiary(query.id)
     if (entry) fill(entry)
