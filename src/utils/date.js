@@ -1,3 +1,5 @@
+import { Solar } from 'lunar-javascript'
+
 export function pad(value) {
   return String(value).padStart(2, '0')
 }
@@ -50,33 +52,16 @@ export function getMonthGrid(year, month) {
   return cells
 }
 
-const SOLAR_HOLIDAYS = {
-  '01-01': '元旦',
-  '02-14': '情人节',
-  '03-08': '妇女节',
-  '04-05': '清明',
-  '05-01': '劳动节',
-  '05-04': '青年节',
-  '06-01': '儿童节',
-  '07-01': '建党节',
-  '08-01': '建军节',
-  '09-10': '教师节',
-  '10-01': '国庆',
-  '12-24': '平安夜',
-  '12-25': '圣诞'
-}
-
-const LUNAR_HOLIDAYS_BY_YEAR = {
-  2026: {
-    '02-17': '春节',
-    '03-03': '元宵',
-    '06-19': '端午',
-    '09-25': '中秋'
-  }
-}
-
 export function getHolidayLabel(key) {
-  const year = Number(String(key).slice(0, 4))
-  const monthDay = String(key).slice(5)
-  return LUNAR_HOLIDAYS_BY_YEAR[year]?.[monthDay] || SOLAR_HOLIDAYS[monthDay] || ''
+  const [year, month, day] = String(key).split('-').map(Number)
+  if (!year || !month || !day) return ''
+
+  const solar = Solar.fromYmd(year, month, day)
+  const lunar = solar.getLunar()
+  const lunarFestival = lunar.getFestivals()[0]
+  const solarFestival = solar.getFestivals()[0]
+  const jieQi = lunar.getJieQi()
+  const otherFestival = solar.getOtherFestivals()[0] || lunar.getOtherFestivals()[0]
+
+  return lunarFestival || solarFestival || jieQi || otherFestival || ''
 }
