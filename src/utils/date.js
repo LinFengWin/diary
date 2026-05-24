@@ -52,16 +52,33 @@ export function getMonthGrid(year, month) {
   return cells
 }
 
+const IMPORTANT_HOLIDAYS = new Set([
+  '元旦节',
+  '春节',
+  '元宵节',
+  '清明',
+  '劳动节',
+  '端午节',
+  '中秋节',
+  '国庆节'
+])
+
+function shortHolidayName(name) {
+  return String(name || '').replace(/节$/, '')
+}
+
 export function getHolidayLabel(key) {
   const [year, month, day] = String(key).split('-').map(Number)
   if (!year || !month || !day) return ''
 
   const solar = Solar.fromYmd(year, month, day)
   const lunar = solar.getLunar()
-  const lunarFestival = lunar.getFestivals()[0]
-  const solarFestival = solar.getFestivals()[0]
-  const jieQi = lunar.getJieQi()
-  const otherFestival = solar.getOtherFestivals()[0] || lunar.getOtherFestivals()[0]
+  const festivals = [
+    ...lunar.getFestivals(),
+    ...solar.getFestivals(),
+    lunar.getJieQi()
+  ].filter(Boolean)
+  const important = festivals.find(name => IMPORTANT_HOLIDAYS.has(name))
 
-  return lunarFestival || solarFestival || jieQi || otherFestival || ''
+  return important ? shortHolidayName(important) : ''
 }
