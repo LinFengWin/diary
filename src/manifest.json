@@ -1,0 +1,20 @@
+{
+  "name": "Moo Vibe Diary",
+  "appid": "__UNI__MOO_DIARY",
+  "description": "纯自用治愈日记小程序",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "mp-weixin": {
+    "appid": "touristappid",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": true
+    },
+    "usingComponents": true
+  },
+  "h5": {
+    "title": "Moo Vibe Diary"
+  }
+}
