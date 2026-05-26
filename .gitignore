@@ -1,5 +1,9 @@
 node_modules/
-dist/
+dist/*
+!dist/build/
+dist/build/*
+!dist/build/h5/
+!dist/build/h5/**
 
 server/data/
 
