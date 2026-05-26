@@ -1,4 +1,5 @@
-const KEY = 'moo-vibe-diary-local-key'
+const KEY_STORAGE = 'moo_vibe_encryption_key'
+const LEGACY_APP_KEY = 'moo-vibe-diary-local-key'
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
 
 function utf8ToBinary(text) {
@@ -50,25 +51,25 @@ function fromBase64(input) {
   return output
 }
 
-function xor(binary) {
+function xor(binary, key) {
   let output = ''
   for (let i = 0; i < binary.length; i += 1) {
-    output += String.fromCharCode(binary.charCodeAt(i) ^ KEY.charCodeAt(i % KEY.length))
+    output += String.fromCharCode(binary.charCodeAt(i) ^ key.charCodeAt(i % key.length))
   }
   return output
 }
 
-export function encrypt(value) {
-  const json = JSON.stringify(value)
-  return toBase64(xor(utf8ToBinary(json)))
-}
-
-export function decrypt(payload, fallback = null) {
-  try {
-    return JSON.parse(binaryToUtf8(xor(fromBase64(payload))))
-  } catch (error) {
-    return fallback
+function getOrCreateDeviceKey() {
+  let key = uni.getStorageSync(KEY_STORAGE)
+  if (key && key.length >= 32) return key
+  // Generate a random 64-character device-specific key
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()'
+  key = ''
+  for (let i = 0; i < 64; i += 1) {
+    key += chars.charAt(Math.floor(Math.random() * chars.length))
   }
+  uni.setStorageSync(KEY_STORAGE, key)
+  return key
 }
 
 export function hashText(text) {
@@ -82,4 +83,43 @@ export function hashText(text) {
     h2 = Math.imul(h2, 0x85ebca6b)
   }
   return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0).toString(16).padStart(8, '0')}`
+}
+
+// Format: "v2:<hmac>:<base64-encoded-xor-payload>"
+const V2_PREFIX = 'v2:'
+
+export function encrypt(value) {
+  const json = JSON.stringify(value)
+  const key = getOrCreateDeviceKey()
+  const payload = toBase64(xor(utf8ToBinary(json), key))
+  const hmac = hashText(`${key}:${payload}`)
+  return `${V2_PREFIX}${hmac}:${payload}`
+}
+
+export function decrypt(payload, fallback = null) {
+  if (!payload) return fallback
+
+  // Try v2 format first
+  if (typeof payload === 'string' && payload.startsWith(V2_PREFIX)) {
+    try {
+      const rest = payload.slice(V2_PREFIX.length)
+      const colonIndex = rest.indexOf(':')
+      if (colonIndex === -1) return fallback
+      const hmac = rest.slice(0, colonIndex)
+      const data = rest.slice(colonIndex + 1)
+      const key = getOrCreateDeviceKey()
+      if (hashText(`${key}:${data}`) !== hmac) return fallback
+      const binary = xor(fromBase64(data), key)
+      return JSON.parse(binaryToUtf8(binary))
+    } catch {
+      return fallback
+    }
+  }
+
+  // Fall back to legacy fixed-key format
+  try {
+    return JSON.parse(binaryToUtf8(xor(fromBase64(payload), LEGACY_APP_KEY)))
+  } catch {
+    return fallback
+  }
 }

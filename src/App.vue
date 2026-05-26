@@ -1,9 +1,12 @@
 <script setup>
 import { onLaunch, onShow } from '@dcloudio/uni-app'
-import { mergeLatestFromServer } from '@/utils/storage'
+import { flushPendingSync, hasPendingSync, mergeLatestFromServer } from '@/utils/storage'
 
 function autoSync() {
   mergeLatestFromServer().catch(() => {})
+  if (hasPendingSync()) {
+    flushPendingSync().catch(() => {})
+  }
 }
 
 onLaunch(() => {

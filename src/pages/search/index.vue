@@ -51,7 +51,9 @@
     </view>
 
     <view v-else class="empty">
-      <text>没有匹配的日记</text>
+      <MooEmptyArt />
+      <text class="empty-title">没有匹配的日记</text>
+      <text class="empty-text">换个关键词、标签或心情试试看。</text>
     </view>
   </view>
 </template>
@@ -63,6 +65,7 @@ import { MOODS, getMood } from '@/utils/constants'
 import { formatDate } from '@/utils/date'
 import { getDiaries } from '@/utils/storage'
 import { requireUnlock } from '@/utils/locker'
+import MooEmptyArt from '@/components/MooEmptyArt.vue'
 
 const diaries = ref([])
 const keyword = ref('')
@@ -256,9 +259,29 @@ onShow(async () => {
 }
 
 .empty {
-  padding-top: 120rpx;
+  margin-top: 36rpx;
+  padding: 72rpx 34rpx;
+  border-radius: 22px;
   color: $moo-muted;
+  background: $moo-white;
+  box-shadow: $moo-shadow;
   text-align: center;
-  font-size: 26rpx;
+}
+
+.empty-title,
+.empty-text {
+  display: block;
+}
+
+.empty-title {
+  margin-top: 18rpx;
+  color: $moo-text;
+  font-size: 29rpx;
+  font-weight: 800;
+}
+
+.empty-text {
+  margin-top: 10rpx;
+  font-size: 24rpx;
 }
 </style>

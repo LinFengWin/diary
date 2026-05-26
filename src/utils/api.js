@@ -19,6 +19,64 @@ export function setApiBase(value) {
   return normalized
 }
 
+export function testApiBase(value = getApiBase()) {
+  const base = String(value || '').trim().replace(/\/$/, '')
+  if (!base) return Promise.reject(new Error('请先填写服务地址'))
+
+  return new Promise((resolve, reject) => {
+    uni.request({
+      url: `${base}/api/health`,
+      method: 'GET',
+      success(result) {
+        const data = result.data || {}
+        if (result.statusCode >= 200 && result.statusCode < 300 && data.ok) {
+          resolve(data)
+          return
+        }
+        reject(new Error(data.message || `连接失败：${result.statusCode}`))
+      },
+      fail(error) {
+        reject(new Error(error.errMsg || '无法连接存储服务'))
+      }
+    })
+  })
+}
+
+export function normalizeAssetUrl(url) {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  if (/^(blob:|data:|wxfile:|http:\/\/tmp|https:\/\/tmp)/i.test(value)) return value
+  if (value.startsWith('/uploads/')) return `${getApiBase()}${value}`
+
+  try {
+    const parsed = new URL(value)
+    if (parsed.pathname.startsWith('/uploads/')) {
+      return `${getApiBase()}${parsed.pathname}`
+    }
+  } catch (error) {
+    // Keep non-URL local paths untouched.
+  }
+
+  return value
+}
+
+export function toStoredImageUrl(url) {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  if (value.startsWith('/uploads/')) return value
+
+  try {
+    const parsed = new URL(value)
+    if (parsed.pathname.startsWith('/uploads/')) {
+      return parsed.pathname
+    }
+  } catch (error) {
+    // Keep non-URL local paths untouched.
+  }
+
+  return value
+}
+
 export function getAuthToken() {
   return uni.getStorageSync(STORAGE_KEYS.AUTH_TOKEN) || ''
 }
@@ -91,7 +149,7 @@ export function uploadImage(filePath) {
           }
         }
         if (result.statusCode >= 200 && result.statusCode < 300 && data.url) {
-          resolve(data.url)
+          resolve(toStoredImageUrl(data.url))
           return
         }
         reject(new Error(data.message || `上传失败：${result.statusCode}`))
@@ -101,8 +159,4 @@ export function uploadImage(filePath) {
       }
     })
   })
-}
-
-export function createDatabaseBackup() {
-  return request('/api/backup', { method: 'POST' })
 }

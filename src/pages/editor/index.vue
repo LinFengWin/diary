@@ -59,7 +59,7 @@
       </view>
       <view v-if="form.images.length" class="images">
         <view v-for="(img, index) in form.images" :key="img" class="image-wrap">
-          <image :src="img" mode="aspectFill" class="image" @click="previewImage(index)" />
+          <image :src="normalizeAssetUrl(img)" mode="aspectFill" class="image" @click="previewImage(index)" />
           <text class="remove" @click.stop="removeImage(index)">×</text>
         </view>
       </view>
@@ -70,7 +70,7 @@
       <text class="label">常用标签</text>
       <view class="tag-grid">
         <text
-          v-for="tag in FIXED_TAGS"
+          v-for="tag in selectableTags"
           :key="tag"
           class="tag-chip"
           :class="{ active: selectedTags.includes(tag) }"
@@ -98,14 +98,15 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
-import { FIXED_TAGS, MOODS, WEATHERS } from '@/utils/constants'
+import { MOODS, WEATHERS } from '@/utils/constants'
 import { formatDate, isFutureDate, toDateKey } from '@/utils/date'
-import { deleteDiary, getDiary, saveDiary } from '@/utils/storage'
+import { deleteDiary, getAllDiaries, getDiary, saveDiary } from '@/utils/storage'
 import { requireUnlock } from '@/utils/locker'
-import { uploadImage } from '@/utils/api'
+import { normalizeAssetUrl, uploadImage } from '@/utils/api'
 import { STORAGE_KEYS } from '@/utils/constants'
+import { getManagedTags } from '@/utils/tags'
 
 const form = reactive({
   id: '',
@@ -120,11 +121,21 @@ const form = reactive({
 
 const tagText = ref('')
 const selectedTags = ref([])
+const managedTags = ref([])
 const draftStatus = ref('')
 const draftKey = ref('')
 const draftReady = ref(false)
 const shouldSaveDraft = ref(true)
 let draftTimer = null
+
+const selectableTags = computed(() => {
+  const all = [...managedTags.value, ...form.tags]
+  return Array.from(new Set(all.filter(Boolean)))
+})
+
+function refreshManagedTags() {
+  managedTags.value = getManagedTags(getAllDiaries())
+}
 
 function currentDraftKey(id = form.id, date = form.date) {
   return `${STORAGE_KEYS.DRAFT_PREFIX}${id || `new_${date}`}`
@@ -181,8 +192,9 @@ function fill(entry) {
   form.tags = Array.isArray(entry.tags) ? entry.tags : []
   form.hidden = !!entry.hidden
   form.date = entry.date || toDateKey()
-  selectedTags.value = form.tags.filter(tag => FIXED_TAGS.includes(tag))
-  tagText.value = form.tags.filter(tag => !FIXED_TAGS.includes(tag)).join(',')
+  const baseTags = new Set(getManagedTags(getAllDiaries()))
+  selectedTags.value = form.tags.filter(tag => baseTags.has(tag))
+  tagText.value = form.tags.filter(tag => !baseTags.has(tag)).join(',')
 }
 
 function pickToday() {
@@ -230,10 +242,15 @@ function chooseImages() {
   })
 }
 
+function displayImages() {
+  return form.images.map(normalizeAssetUrl)
+}
+
 function previewImage(index) {
+  const urls = displayImages()
   uni.previewImage({
-    current: form.images[index],
-    urls: form.images
+    current: urls[index],
+    urls
   })
 }
 
@@ -241,21 +258,28 @@ function removeImage(index) {
   form.images.splice(index, 1)
 }
 
-function submit() {
+async function submit() {
   if (isFutureDate(form.date)) {
     uni.showToast({ title: '未来日期不能补记', icon: 'none' })
     return
   }
-  const saved = saveDiary({
-    ...form,
-    tags: composeTags()
-  })
-  shouldSaveDraft.value = false
-  clearDraft()
-  uni.showToast({ title: '已保存', icon: 'success' })
-  setTimeout(() => {
-    uni.redirectTo({ url: `/pages/detail/index?id=${saved.id}` })
-  }, 350)
+  uni.showLoading({ title: '保存到数据库...' })
+  try {
+    const saved = await saveDiary({
+      ...form,
+      tags: composeTags()
+    })
+    shouldSaveDraft.value = false
+    clearDraft()
+    uni.hideLoading()
+    uni.showToast({ title: '已保存到数据库', icon: 'success' })
+    setTimeout(() => {
+      uni.redirectTo({ url: `/pages/detail/index?id=${saved.id}` })
+    }, 350)
+  } catch (error) {
+    uni.hideLoading()
+    uni.showToast({ title: error.message || '保存失败', icon: 'none' })
+  }
 }
 
 function removeDiary() {
@@ -265,16 +289,25 @@ function removeDiary() {
     confirmColor: '#D45D66',
     success(result) {
       if (!result.confirm) return
+      uni.showLoading({ title: '正在删除...' })
       deleteDiary(form.id)
-      shouldSaveDraft.value = false
-      clearDraft()
-      uni.showToast({ title: '已删除', icon: 'success' })
-      setTimeout(() => uni.navigateBack(), 450)
+        .then(() => {
+          shouldSaveDraft.value = false
+          clearDraft()
+          uni.hideLoading()
+          uni.showToast({ title: '已删除', icon: 'success' })
+          setTimeout(() => uni.navigateBack(), 450)
+        })
+        .catch(error => {
+          uni.hideLoading()
+          uni.showToast({ title: error.message || '删除失败', icon: 'none' })
+        })
     }
   })
 }
 
 onLoad(query => {
+  refreshManagedTags()
   if (query.date) {
     if (isFutureDate(query.date)) {
       form.date = toDateKey()
@@ -309,6 +342,7 @@ onLoad(query => {
 
 onShow(async () => {
   await requireUnlock()
+  refreshManagedTags()
 })
 
 onUnload(() => {

@@ -4,10 +4,6 @@ export function currentUser() {
   return getAuthUser()
 }
 
-export function isLoggedIn() {
-  return !!currentUser()
-}
-
 export async function register(username, password) {
   const result = await request('/api/register', {
     method: 'POST',

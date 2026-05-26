@@ -5,32 +5,54 @@
       <text class="sub">{{ photos.length }} 张日记图片</text>
     </view>
 
-    <view v-if="photos.length" class="grid">
-      <view v-for="(photo, index) in photos" :key="photo.src" class="photo-card">
-        <image :src="photo.src" mode="aspectFill" class="photo" @click="preview(index)" />
-        <view class="photo-info" @click="openDiary(photo.diaryId)">
-          <text>{{ formatDate(photo.date) }}</text>
-          <text>{{ getMood(photo.moodId).emoji }} {{ getMood(photo.moodId).label }}</text>
+    <view v-if="groups.length" class="timeline">
+      <view v-for="group in groups" :key="group.key" class="month-group">
+        <view class="month-head">
+          <text>{{ group.label }}</text>
+          <text>{{ group.items.length }} 张</text>
+        </view>
+        <view class="grid">
+          <view v-for="photo in group.items" :key="photo.src" class="photo-card">
+            <image :src="photo.src" mode="aspectFill" class="photo" @click="preview(photo.index)" />
+            <view class="photo-info" @click="openDiary(photo.diaryId)">
+              <text>{{ formatDate(photo.date) }}</text>
+              <text>{{ getMood(photo.moodId).emoji }} {{ getMood(photo.moodId).label }}</text>
+            </view>
+          </view>
         </view>
       </view>
     </view>
 
     <view v-else class="empty">
-      <text class="empty-icon">🖼️</text>
-      <text>还没有日记图片</text>
+      <MooEmptyArt />
+      <text class="empty-title">还没有日记图片</text>
+      <text class="empty-text">写日记时加几张照片，这里会自动按月份整理。</text>
+      <button class="empty-action" @click="goEditor">去写一篇</button>
     </view>
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { getMood } from '@/utils/constants'
 import { formatDate } from '@/utils/date'
 import { getDiaries } from '@/utils/storage'
 import { requireUnlock } from '@/utils/locker'
+import MooEmptyArt from '@/components/MooEmptyArt.vue'
 
 const photos = ref([])
+
+const groups = computed(() => {
+  const map = new Map()
+  photos.value.forEach((photo, index) => {
+    const key = String(photo.date || '').slice(0, 7) || 'unknown'
+    const label = key === 'unknown' ? '未记录日期' : `${key.replace('-', ' 年 ')} 月`
+    if (!map.has(key)) map.set(key, { key, label, items: [] })
+    map.get(key).items.push({ ...photo, index })
+  })
+  return Array.from(map.values())
+})
 
 function refresh() {
   photos.value = getDiaries()
@@ -51,6 +73,10 @@ function preview(index) {
 
 function openDiary(id) {
   uni.navigateTo({ url: `/pages/detail/index?id=${id}` })
+}
+
+function goEditor() {
+  uni.navigateTo({ url: '/pages/editor/index' })
 }
 
 onShow(async () => {
@@ -93,6 +119,28 @@ onShow(async () => {
   gap: 16rpx;
 }
 
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 28rpx;
+}
+
+.month-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14rpx;
+  color: $moo-text;
+  font-size: 29rpx;
+  font-weight: 800;
+}
+
+.month-head text:last-child {
+  color: $moo-muted;
+  font-size: 22rpx;
+  font-weight: 500;
+}
+
 .photo-card {
   overflow: hidden;
   border-radius: $moo-radius;
@@ -123,15 +171,42 @@ onShow(async () => {
 }
 
 .empty {
-  padding-top: 160rpx;
+  margin-top: 60rpx;
+  padding: 76rpx 34rpx;
+  border-radius: 22px;
   color: $moo-muted;
+  background: $moo-white;
+  box-shadow: $moo-shadow;
   text-align: center;
-  font-size: 28rpx;
 }
 
-.empty-icon {
+.empty-title,
+.empty-text {
   display: block;
-  margin-bottom: 18rpx;
-  font-size: 70rpx;
+}
+
+.empty-title {
+  color: $moo-text;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.empty-text {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  line-height: 1.55;
+}
+
+.empty-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 190rpx;
+  height: 72rpx;
+  margin: 26rpx auto 0;
+  border-radius: 999px;
+  color: #ffffff;
+  background: $moo-primary;
+  font-size: 25rpx;
 }
 </style>

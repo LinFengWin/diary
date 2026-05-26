@@ -1,6 +1,7 @@
 const crypto = require('crypto')
 const fs = require('fs')
 const http = require('http')
+const os = require('os')
 const path = require('path')
 const { DatabaseSync } = require('node:sqlite')
 
@@ -9,11 +10,14 @@ const DATA_DIR = path.join(__dirname, 'data')
 const DB_FILE = path.join(DATA_DIR, 'moo-diary.sqlite')
 const LEGACY_JSON_FILE = path.join(DATA_DIR, 'db.json')
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads')
+const UPLOAD_TRASH_DIR = path.join(DATA_DIR, 'upload-trash')
 const BACKUP_DIR = path.join(DATA_DIR, 'backups')
+const BUILD_DIR = path.resolve(__dirname, '..', 'dist', 'build', 'h5')
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true })
   if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true })
+  if (!fs.existsSync(UPLOAD_TRASH_DIR)) fs.mkdirSync(UPLOAD_TRASH_DIR, { recursive: true })
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true })
 }
 
@@ -56,6 +60,15 @@ function openDatabase() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_diaries_user_date ON diaries(user_id, date);
+
+    CREATE TABLE IF NOT EXISTS weather_cache (
+      user_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      weather_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, date),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `)
   migrateLegacyJson(db)
   return db
@@ -126,7 +139,7 @@ function send(res, status, payload) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   })
   res.end(JSON.stringify(payload))
@@ -139,14 +152,33 @@ function sendFile(res, filePath) {
     '.jpeg': 'image/jpeg',
     '.png': 'image/png',
     '.gif': 'image/gif',
-    '.webp': 'image/webp'
+    '.webp': 'image/webp',
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon'
   }
   res.writeHead(200, {
     'Content-Type': typeMap[ext] || 'application/octet-stream',
-    'Cache-Control': 'public, max-age=31536000',
+    'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000',
     'Access-Control-Allow-Origin': '*'
   })
   fs.createReadStream(filePath).pipe(res)
+}
+
+function sendStatic(res, urlPath) {
+  let filePath = path.join(BUILD_DIR, urlPath === '/' ? 'index.html' : urlPath)
+  if (!fs.existsSync(filePath)) {
+    // SPA fallback: serve index.html for client-side routes
+    filePath = path.join(BUILD_DIR, 'index.html')
+  }
+  if (!filePath.startsWith(path.resolve(BUILD_DIR)) || !fs.existsSync(filePath)) {
+    return false
+  }
+  sendFile(res, filePath)
+  return true
 }
 
 function readBody(req) {
@@ -265,9 +297,41 @@ function cleanupUnusedUploads(userId, referencedFiles) {
   fs.readdirSync(userDir).forEach(name => {
     const relative = `${userId}/${name}`.replace(/\\/g, '/')
     if (!referencedFiles.has(relative)) {
-      fs.rmSync(path.join(userDir, name), { force: true })
+      quarantineUpload(userId, name)
     }
   })
+}
+
+function quarantineUpload(userId, name) {
+  const source = path.join(UPLOAD_DIR, userId, name)
+  if (!fs.existsSync(source)) return
+
+  const targetDir = path.join(UPLOAD_TRASH_DIR, userId)
+  if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true })
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const target = path.join(targetDir, `${stamp}-${name}`)
+  try {
+    fs.renameSync(source, target)
+  } catch (error) {
+    fs.copyFileSync(source, target)
+    fs.rmSync(source, { force: true })
+  }
+}
+
+function getLanUrls(req) {
+  const urls = new Set([`http://localhost:${PORT}`])
+  const host = String(req.headers.host || '').split(':')[0]
+  if (host && host !== 'localhost' && host !== '127.0.0.1') {
+    urls.add(`http://${host}:${PORT}`)
+  }
+
+  Object.values(os.networkInterfaces()).flat().forEach(item => {
+    if (!item || item.family !== 'IPv4' || item.internal) return
+    urls.add(`http://${item.address}:${PORT}`)
+  })
+
+  return Array.from(urls)
 }
 
 function normalizeUsername(username) {
@@ -305,7 +369,50 @@ function getDiaries(userId) {
   `).all(userId).map(rowToDiary)
 }
 
+function normalizeDateKey(value) {
+  const key = String(value || '').trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : ''
+}
+
+function isValidWeatherId(value) {
+  return ['sunny', 'cloudy', 'rainy', 'snowy', 'foggy'].includes(String(value || ''))
+}
+
+function getAccountWeather(userId, date) {
+  const row = db.prepare(`
+    SELECT date, weather_id, updated_at
+    FROM weather_cache
+    WHERE user_id = ? AND date = ?
+  `).get(userId, date)
+  if (!row) return null
+  return {
+    date: row.date,
+    weatherId: row.weather_id,
+    updatedAt: row.updated_at
+  }
+}
+
+function saveAccountWeather(userId, date, weatherId) {
+  const updatedAt = new Date().toISOString()
+  db.prepare(`
+    INSERT OR REPLACE INTO weather_cache (user_id, date, weather_id, updated_at)
+    VALUES (?, ?, ?, ?)
+  `).run(userId, date, weatherId, updatedAt)
+  return { date, weatherId, updatedAt }
+}
+
 function replaceDiaries(userId, diaries) {
+  const existing = getDiaries(userId)
+  const merged = new Map(existing.map(d => [d.id, d]))
+
+  for (const item of diaries) {
+    const existing = merged.get(item.id)
+    if (!existing || (item.updatedAt || '') >= (existing.updatedAt || '')) {
+      merged.set(item.id, item)
+    }
+  }
+
+  const finalList = Array.from(merged.values())
   const insert = db.prepare(`
     INSERT OR REPLACE INTO diaries (
       user_id, id, date, mood_id, weather_id, content,
@@ -316,7 +423,7 @@ function replaceDiaries(userId, diaries) {
   db.exec('BEGIN')
   try {
     db.prepare('DELETE FROM diaries WHERE user_id = ?').run(userId)
-    diaries.forEach(item => {
+    finalList.forEach(item => {
       const now = new Date().toISOString()
       insert.run(
         userId,
@@ -333,11 +440,18 @@ function replaceDiaries(userId, diaries) {
       )
     })
     db.exec('COMMIT')
-    cleanupUnusedUploads(userId, referencedUploadFiles(userId, diaries))
+    cleanupUnusedUploads(userId, referencedUploadFiles(userId, finalList))
+    return finalList
   } catch (error) {
     db.exec('ROLLBACK')
     throw error
   }
+}
+
+function deleteDiary(userId, diaryId) {
+  const result = db.prepare('DELETE FROM diaries WHERE user_id = ? AND id = ?').run(userId, diaryId)
+  cleanupUnusedUploads(userId, referencedUploadFiles(userId, getDiaries(userId)))
+  return result.changes || 0
 }
 
 function createSqliteBackup() {
@@ -386,7 +500,15 @@ async function handle(req, res) {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/health') {
-      send(res, 200, { ok: true, database: 'sqlite', dataFile: DB_FILE, uploadDir: UPLOAD_DIR, backupDir: BACKUP_DIR })
+      send(res, 200, {
+        ok: true,
+        database: 'sqlite',
+        dataFile: DB_FILE,
+        uploadDir: UPLOAD_DIR,
+        uploadTrashDir: UPLOAD_TRASH_DIR,
+        backupDir: BACKUP_DIR,
+        lanUrls: getLanUrls(req)
+      })
       return
     }
 
@@ -448,6 +570,21 @@ async function handle(req, res) {
       return
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/verify-password') {
+      const authed = getAuthedUser(req)
+      if (!authed) {
+        send(res, 401, { message: '请先登录' })
+        return
+      }
+      const body = await readBody(req)
+      if (!verifyPassword(body.password || '', authed)) {
+        send(res, 401, { message: '密码不正确' })
+        return
+      }
+      send(res, 200, { ok: true })
+      return
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/logout') {
       const auth = req.headers.authorization || ''
       const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
@@ -469,6 +606,32 @@ async function handle(req, res) {
 
     if (req.method === 'GET' && url.pathname === '/api/diaries') {
       send(res, 200, { diaries: getDiaries(user.id) })
+      return
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/weather') {
+      const date = normalizeDateKey(url.searchParams.get('date'))
+      if (!date) {
+        send(res, 400, { message: 'date 必须是 YYYY-MM-DD' })
+        return
+      }
+      send(res, 200, { weather: getAccountWeather(user.id, date) })
+      return
+    }
+
+    if (req.method === 'PUT' && url.pathname === '/api/weather') {
+      const body = await readBody(req)
+      const date = normalizeDateKey(body.date)
+      const weatherId = String(body.weatherId || '')
+      if (!date) {
+        send(res, 400, { message: 'date 必须是 YYYY-MM-DD' })
+        return
+      }
+      if (!isValidWeatherId(weatherId)) {
+        send(res, 400, { message: 'weatherId 不正确' })
+        return
+      }
+      send(res, 200, { weather: saveAccountWeather(user.id, date, weatherId) })
       return
     }
 
@@ -498,8 +661,19 @@ async function handle(req, res) {
       fs.writeFileSync(filePath, filePart.content)
 
       send(res, 200, {
-        url: `http://${req.headers.host}/uploads/${user.id}/${fileName}`
+        url: `/uploads/${user.id}/${fileName}`
       })
+      return
+    }
+
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/diaries/')) {
+      const diaryId = decodeURIComponent(url.pathname.replace(/^\/api\/diaries\//, '')).trim()
+      if (!diaryId) {
+        send(res, 400, { message: '日记 id 不能为空' })
+        return
+      }
+      const deleted = deleteDiary(user.id, diaryId)
+      send(res, 200, { ok: true, deleted, diaries: getDiaries(user.id) })
       return
     }
 
@@ -510,9 +684,12 @@ async function handle(req, res) {
         return
       }
       replaceDiaries(user.id, body.diaries)
-      send(res, 200, { ok: true, count: body.diaries.length })
+      send(res, 200, { ok: true, count: body.diaries.length, diaries: getDiaries(user.id) })
       return
     }
+
+    // Serve production H5 build for non-API paths
+    if (sendStatic(res, url.pathname)) return
 
     send(res, 404, { message: '接口不存在' })
   } catch (error) {

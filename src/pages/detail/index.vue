@@ -2,6 +2,7 @@
   <view class="page">
     <view v-if="entry" class="detail">
       <view class="hero">
+        <view class="paper-pin"></view>
         <view>
           <text class="date">{{ formatDate(entry.date) }}</text>
           <text class="title">{{ mood.emoji }} {{ mood.label }}</text>
@@ -11,10 +12,12 @@
       </view>
 
       <view class="content-card">
+        <view class="paper-lines"></view>
         <text class="content">{{ entry.content || '这篇日记没有写文字。' }}</text>
       </view>
 
       <view v-if="entry.images.length" class="image-card">
+        <text class="image-title">今日相片</text>
         <image
           v-for="(img, index) in entry.images"
           :key="img"
@@ -33,7 +36,9 @@
     </view>
 
     <view v-else class="empty">
-      <text>没有找到这篇日记</text>
+      <MooEmptyArt />
+      <text class="empty-title">没有找到这篇日记</text>
+      <text class="empty-text">也许它已经被删除，或者还没有同步回来。</text>
     </view>
   </view>
 </template>
@@ -45,6 +50,7 @@ import { getMood, getWeather } from '@/utils/constants'
 import { formatDate, formatTime } from '@/utils/date'
 import { getDiary } from '@/utils/storage'
 import { requireUnlock } from '@/utils/locker'
+import MooEmptyArt from '@/components/MooEmptyArt.vue'
 
 const entry = ref(null)
 const diaryId = ref('')
@@ -90,13 +96,25 @@ onShow(async () => {
 }
 
 .hero {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 30rpx;
-  border-radius: 20px;
-  background: $moo-primary-light;
+  padding: 34rpx 30rpx 32rpx;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #ffffff 0%, $moo-primary-light 70%, $moo-yellow 100%);
   box-shadow: $moo-shadow;
+}
+
+.paper-pin {
+  position: absolute;
+  right: 34rpx;
+  bottom: -32rpx;
+  width: 150rpx;
+  height: 150rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .date,
@@ -139,12 +157,35 @@ onShow(async () => {
 .image-card {
   margin-top: 20rpx;
   padding: 28rpx;
-  border-radius: $moo-radius;
+  border-radius: 18px;
   background: $moo-white;
   box-shadow: $moo-shadow;
 }
 
+.content-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 240rpx;
+}
+
+.paper-lines {
+  position: absolute;
+  left: 28rpx;
+  right: 28rpx;
+  top: 72rpx;
+  bottom: 28rpx;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 54rpx,
+    rgba(111, 149, 191, 0.1) 55rpx,
+    transparent 56rpx
+  );
+}
+
 .content {
+  position: relative;
+  z-index: 1;
   display: block;
   color: #424b52;
   font-size: 31rpx;
@@ -152,12 +193,21 @@ onShow(async () => {
   white-space: pre-wrap;
 }
 
+.image-title {
+  display: block;
+  margin-bottom: 18rpx;
+  color: $moo-text;
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
 .photo {
   display: block;
   width: 100%;
   margin-bottom: 18rpx;
-  border-radius: 16rpx;
+  border-radius: 18rpx;
   background: $moo-soft;
+  box-shadow: 0 8rpx 24rpx rgba(71, 94, 115, 0.08);
 }
 
 .photo:last-child {
@@ -187,9 +237,30 @@ onShow(async () => {
 }
 
 .empty {
-  padding-top: 160rpx;
+  margin-top: 80rpx;
+  padding: 72rpx 34rpx;
+  border-radius: 22px;
   color: $moo-muted;
+  background: $moo-white;
+  box-shadow: $moo-shadow;
   text-align: center;
-  font-size: 28rpx;
+}
+
+.empty-title,
+.empty-text {
+  display: block;
+}
+
+.empty-title {
+  margin-top: 18rpx;
+  color: $moo-text;
+  font-size: 30rpx;
+  font-weight: 800;
+}
+
+.empty-text {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  line-height: 1.55;
 }
 </style>

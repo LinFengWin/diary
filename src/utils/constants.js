@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
   AUTH_USER: 'moo_vibe_auth_user_v1',
   API_BASE: 'moo_vibe_api_base_v1',
   LAST_AUTO_SYNC: 'moo_vibe_last_auto_sync_v1',
+  CUSTOM_TAGS: 'moo_vibe_custom_tags_v1',
   DRAFT_PREFIX: 'moo_vibe_draft_'
 }
 

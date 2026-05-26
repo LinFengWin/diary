@@ -75,10 +75,10 @@ export function getHolidayLabel(key) {
   const lunar = solar.getLunar()
   const festivals = [
     ...lunar.getFestivals(),
-    ...solar.getFestivals(),
-    lunar.getJieQi()
+    ...solar.getFestivals()
   ].filter(Boolean)
   const important = festivals.find(name => IMPORTANT_HOLIDAYS.has(name))
+  const jieQi = lunar.getJieQi()
 
-  return important ? shortHolidayName(important) : ''
+  return important ? shortHolidayName(important) : jieQi || ''
 }

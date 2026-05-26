@@ -5,14 +5,19 @@
         <text class="hello">{{ greeting }}</text>
         <text class="date">{{ todayLabel }}</text>
       </view>
+      <view class="sync-status" @click="manualSync">
+        <text class="sync-icon">{{ syncIcon }}</text>
+        <text class="sync-text">{{ syncText }}</text>
+      </view>
     </view>
 
-    <view class="today-card" @click="goEditor">
+    <view class="today-card" :class="weatherClass" @click="goEditor">
+      <view class="weather-glow"></view>
       <view class="today-left">
-        <text class="today-emoji">{{ todayDiary ? moodOf(todayDiary).emoji : '📝' }}</text>
+        <text class="today-emoji">{{ weatherIcon }}</text>
         <view class="today-copy">
-          <text class="today-title">{{ todayDiary ? moodOf(todayDiary).label : '今天心情怎么样？' }}</text>
-          <text class="today-sub">{{ todayDiary ? preview(todayDiary.content) : '轻轻写一点，也算照顾自己' }}</text>
+          <text class="today-title">{{ inspirationTitle }}</text>
+          <text class="today-sub">{{ inspirationSub }}</text>
         </view>
       </view>
       <text class="today-action">写</text>
@@ -51,7 +56,7 @@
             <text class="card-mood">{{ moodOf(item).label }}</text>
           </view>
         </view>
-        <text class="card-content">{{ preview(item.content) }}</text>
+        <text class="card-content">{{ preview(item) }}</text>
         <view v-if="item.images.length" class="thumbs">
           <image v-for="img in item.images.slice(0, 3)" :key="img" :src="img" mode="aspectFill" class="thumb" />
         </view>
@@ -62,9 +67,10 @@
     </view>
 
     <view v-else class="empty">
-      <text class="empty-icon">🌱</text>
+      <MooEmptyArt />
       <text class="empty-title">还没有日记</text>
       <text class="empty-text">从今天的一句话开始。</text>
+      <button class="empty-action" @click="goEditor">写第一篇</button>
     </view>
 
     <button class="fab" @click="goEditor">＋</button>
@@ -72,15 +78,25 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
-import { getDiaries, getDiariesByDate } from '@/utils/storage'
+import { getDiaries, hasPendingSync, mergeLatestFromServer } from '@/utils/storage'
+import { getAuthToken } from '@/utils/api'
 import { getMood, getWeather } from '@/utils/constants'
 import { formatDate, toDateKey } from '@/utils/date'
 import { requireUnlock } from '@/utils/locker'
+import { getInspiration } from '@/utils/inspiration'
+import { fetchRealtimeWeather } from '@/utils/weather'
+import MooEmptyArt from '@/components/MooEmptyArt.vue'
 
 const diaries = ref([])
-const todayDiary = ref(null)
+const syncText = ref('')
+const syncIcon = ref('')
+const inspirationTitle = ref('今天心情怎么样？')
+const inspirationSub = ref('轻轻写一点，也算照顾自己')
+const weatherIcon = ref('📝')
+const realtimeWeatherId = ref(null)
+let syncTimer = null
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
@@ -92,10 +108,70 @@ const greeting = computed(() => {
 })
 
 const todayLabel = computed(() => formatDate(toDateKey()))
+const weatherClass = computed(() => `weather-${realtimeWeatherId.value || 'default'}`)
 
 function refresh() {
   diaries.value = getDiaries().slice(0, 12)
-  todayDiary.value = getDiariesByDate(toDateKey())[0] || null
+  refreshInspiration()
+  updateSyncStatus()
+  // Silently fetch realtime weather in background
+  fetchRealtimeWeather().then(id => {
+    realtimeWeatherId.value = id
+    if (id) refreshInspiration()
+  }).catch(() => {})
+}
+
+function refreshInspiration() {
+  const weatherId = realtimeWeatherId.value || null
+  const weather = getWeather(weatherId)
+  weatherIcon.value = weather ? weather.icon : '📝'
+  const result = getInspiration(weatherId)
+  inspirationTitle.value = result.title
+  inspirationSub.value = result.subtitle
+}
+
+function updateSyncStatus() {
+  if (!getAuthToken()) {
+    syncText.value = '未登录'
+    syncIcon.value = '○'
+    return
+  }
+  if (hasPendingSync()) {
+    syncText.value = '待同步'
+    syncIcon.value = '↑'
+    return
+  }
+  const last = uni.getStorageSync('moo_vibe_last_auto_sync_v1')
+  if (last) {
+    const ago = Math.floor((Date.now() - Number(last)) / 1000)
+    syncText.value = ago < 60 ? '刚刚' : `${ago}秒前`
+    syncIcon.value = '✓'
+  } else {
+    syncText.value = '未同步'
+    syncIcon.value = '○'
+  }
+}
+
+async function manualSync(showToast = true) {
+  if (!getAuthToken()) {
+    if (showToast) uni.showToast({ title: '请在"我的"页面登录', icon: 'none' })
+    return
+  }
+  syncText.value = '同步中...'
+  syncIcon.value = '⟳'
+  try {
+    const count = await mergeLatestFromServer({ force: true })
+    refresh()
+    if (showToast) uni.showToast({ title: `已同步 ${count} 篇日记`, icon: 'success' })
+  } catch {
+    if (showToast) uni.showToast({ title: '同步失败，稍后重试', icon: 'none' })
+    updateSyncStatus()
+  }
+}
+
+function scheduleSyncStatus() {
+  clearInterval(syncTimer)
+  syncTimer = setInterval(updateSyncStatus, 30000)
 }
 
 function moodOf(item) {
@@ -107,9 +183,9 @@ function weatherOf(item) {
   return weather ? `${weather.icon} ${weather.label}` : '未选天气'
 }
 
-function preview(content) {
-  if (!content) return '留白也可以被记录'
-  return content.length > 56 ? `${content.slice(0, 56)}...` : content
+function preview(item) {
+  if (!item || !item.content) return '这篇日记没有写文字'
+  return item.content.length > 56 ? `${item.content.slice(0, 56)}...` : item.content
 }
 
 function goEditor() {
@@ -134,12 +210,25 @@ function goAlbum() {
 
 onShow(async () => {
   const ok = await requireUnlock()
-  if (ok) refresh()
+  if (ok) {
+    refresh()
+    // Silently sync from server in background
+    manualSync(false)
+  }
+  scheduleSyncStatus()
+})
+
+onUnmounted(() => {
+  clearInterval(syncTimer)
 })
 
 onPullDownRefresh(() => {
   refresh()
-  uni.stopPullDownRefresh()
+  if (getAuthToken()) {
+    manualSync(true).finally(() => uni.stopPullDownRefresh())
+  } else {
+    uni.stopPullDownRefresh()
+  }
 })
 </script>
 
@@ -150,7 +239,28 @@ onPullDownRefresh(() => {
   box-sizing: border-box;
 }
 
-.top { margin-bottom: 28rpx; }
+.top { margin-bottom: 28rpx; display: flex; align-items: flex-start; justify-content: space-between; }
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  padding: 8rpx 16rpx;
+  border-radius: 999px;
+  background: $moo-white;
+  box-shadow: $moo-shadow;
+  flex-shrink: 0;
+}
+
+.sync-icon {
+  font-size: 22rpx;
+  color: $moo-muted;
+}
+
+.sync-text {
+  font-size: 20rpx;
+  color: $moo-muted;
+}
 
 .hello {
   display: block;
@@ -167,16 +277,47 @@ onPullDownRefresh(() => {
 }
 
 .today-card {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 32rpx;
   border-radius: 20px;
-  background: $moo-primary-light;
+  background: linear-gradient(135deg, #ffffff 0%, $moo-primary-light 100%);
   box-shadow: $moo-shadow;
 }
 
+.weather-glow {
+  position: absolute;
+  right: -42rpx;
+  top: -48rpx;
+  width: 178rpx;
+  height: 178rpx;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.weather-sunny {
+  background: linear-gradient(135deg, #fff8db 0%, #f7edc8 52%, #dde8f2 100%);
+}
+
+.weather-cloudy,
+.weather-foggy {
+  background: linear-gradient(135deg, #ffffff 0%, #eef3f6 48%, #dcefe6 100%);
+}
+
+.weather-rainy {
+  background: linear-gradient(135deg, #edf5ff 0%, #dde8f2 52%, #dcefe6 100%);
+}
+
+.weather-snowy {
+  background: linear-gradient(135deg, #ffffff 0%, #eef3f6 55%, #e9e4f4 100%);
+}
+
 .today-left {
+  position: relative;
+  z-index: 1;
   display: flex;
   min-width: 0;
   align-items: center;
@@ -209,6 +350,8 @@ onPullDownRefresh(() => {
 }
 
 .today-action {
+  position: relative;
+  z-index: 1;
   flex: 0 0 auto;
   width: 68rpx;
   height: 68rpx;
@@ -364,18 +507,30 @@ onPullDownRefresh(() => {
 }
 
 .empty {
-  padding-top: 120rpx;
+  margin-top: 20rpx;
+  padding: 70rpx 30rpx;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8faf9 100%);
+  box-shadow: $moo-shadow;
   text-align: center;
 }
 
-.empty-icon,
 .empty-title,
 .empty-text {
   display: block;
 }
 
-.empty-icon {
-  font-size: 76rpx;
+.empty-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 190rpx;
+  height: 72rpx;
+  margin: 26rpx auto 0;
+  border-radius: 999px;
+  color: #ffffff;
+  background: $moo-primary;
+  font-size: 25rpx;
 }
 
 .empty-title {

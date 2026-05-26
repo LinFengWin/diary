@@ -33,6 +33,9 @@
           <text v-if="calendarMeta[cell.key]?.holiday" class="holiday">
             {{ calendarMeta[cell.key].holiday }}
           </text>
+          <text v-if="calendarMeta[cell.key]?.count > 1" class="count-mark">
+            {{ calendarMeta[cell.key].count }}
+          </text>
         </template>
       </view>
     </view>
@@ -55,7 +58,8 @@
     </view>
 
     <view v-else class="empty">
-      <text>{{ canWriteSelected ? '这天还没有记录' : '未来日期还不能写日记' }}</text>
+      <MooEmptyArt />
+      <text class="empty-title">{{ canWriteSelected ? '这天还没有记录' : '未来日期还不能写日记' }}</text>
       <button v-if="canWriteSelected" @click="writeSelected">写一篇</button>
     </view>
   </view>
@@ -64,7 +68,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getDiaries, getDiariesByDate } from '@/utils/storage'
+import { getDiaries, getDiariesByDate, mergeLatestFromServer } from '@/utils/storage'
 import { getMood } from '@/utils/constants'
 import {
   compareDateKey,
@@ -77,6 +81,7 @@ import {
   toDateKey
 } from '@/utils/date'
 import { requireUnlock } from '@/utils/locker'
+import MooEmptyArt from '@/components/MooEmptyArt.vue'
 
 const now = new Date()
 const todayKey = toDateKey()
@@ -130,7 +135,8 @@ function refresh() {
     const diaries = groups[cell.key] || []
     meta[cell.key] = {
       mood: dominantMood(diaries),
-      holiday: getHolidayLabel(cell.key)
+      holiday: getHolidayLabel(cell.key),
+      count: diaries.length
     }
   })
 
@@ -159,8 +165,10 @@ function selectDate(cell) {
 
 function cellStyle(cell) {
   if (!cell || cell.key === selectedDate.value || isFutureDate(cell.key)) return ''
-  const mood = calendarMeta.value[cell.key]?.mood
-  return mood ? `background:${mood.color};` : ''
+  const meta = calendarMeta.value[cell.key]
+  if (!meta?.mood) return ''
+  const opacity = Math.min(0.95, 0.42 + meta.count * 0.12)
+  return `background:linear-gradient(180deg, ${meta.mood.color}, rgba(255,255,255,${1 - opacity})); box-shadow: inset 0 0 0 2rpx rgba(111,149,191,0.12);`
 }
 
 function openDiary(id) {
@@ -177,7 +185,14 @@ function writeSelected() {
 
 onShow(async () => {
   const ok = await requireUnlock()
-  if (ok) refresh()
+  if (ok) {
+    try {
+      await mergeLatestFromServer()
+    } catch (error) {
+      // Keep showing the local cache if the backend is temporarily unreachable.
+    }
+    refresh()
+  }
 })
 </script>
 
@@ -287,6 +302,21 @@ onShow(async () => {
   line-height: 1;
 }
 
+.count-mark {
+  position: absolute;
+  left: 6rpx;
+  top: 5rpx;
+  min-width: 24rpx;
+  height: 24rpx;
+  padding: 0 5rpx;
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(111, 149, 191, 0.72);
+  font-size: 17rpx;
+  line-height: 24rpx;
+  box-sizing: border-box;
+}
+
 .holiday {
   display: block;
   max-width: 100%;
@@ -306,7 +336,8 @@ onShow(async () => {
 }
 
 .future .holiday,
-.future .mood-mark {
+.future .mood-mark,
+.future .count-mark {
   opacity: 0.55;
 }
 
@@ -370,10 +401,21 @@ onShow(async () => {
 }
 
 .empty {
-  padding: 70rpx 0;
+  margin-top: 18rpx;
+  padding: 64rpx 34rpx;
+  border-radius: 22px;
   color: $moo-muted;
+  background: $moo-white;
+  box-shadow: $moo-shadow;
   text-align: center;
   font-size: 26rpx;
+}
+
+.empty-title {
+  display: block;
+  color: $moo-text;
+  font-size: 29rpx;
+  font-weight: 800;
 }
 
 .empty button {

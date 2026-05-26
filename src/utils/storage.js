@@ -1,7 +1,7 @@
 import { STORAGE_KEYS } from './constants'
 import { decrypt, encrypt, hashText } from './crypto'
 import { toDateKey } from './date'
-import { getAuthToken, getAuthUser, request } from './api'
+import { getAuthToken, getAuthUser, normalizeAssetUrl, request, toStoredImageUrl } from './api'
 
 function readEncrypted(key, fallback) {
   const raw = uni.getStorageSync(key)
@@ -20,39 +20,62 @@ function diaryStorageKey() {
     : `${STORAGE_KEYS.DIARIES}_guest`
 }
 
+function normalizeDiaryForStorage(item = {}) {
+  return {
+    ...item,
+    images: Array.isArray(item.images) ? item.images.map(toStoredImageUrl).filter(Boolean) : [],
+    tags: Array.isArray(item.tags) ? item.tags : []
+  }
+}
+
+function normalizeDiaryForDisplay(item = {}) {
+  return {
+    ...item,
+    images: Array.isArray(item.images) ? item.images.map(normalizeAssetUrl).filter(Boolean) : [],
+    tags: Array.isArray(item.tags) ? item.tags : []
+  }
+}
+
 function readDiaries() {
   const key = diaryStorageKey()
   const diaries = readEncrypted(key, null)
-  if (Array.isArray(diaries)) return diaries
+  if (Array.isArray(diaries)) return diaries.map(normalizeDiaryForStorage)
 
   const user = getAuthUser()
   const legacy = readEncrypted(STORAGE_KEYS.DIARIES, null)
   if (user && Array.isArray(legacy)) {
-    writeEncrypted(key, legacy)
+    const normalized = legacy.map(normalizeDiaryForStorage)
+    writeEncrypted(key, normalized)
     uni.removeStorageSync(STORAGE_KEYS.DIARIES)
-    return legacy
+    return normalized
   }
 
   return []
 }
 
 function writeDiaries(diaries) {
-  writeEncrypted(diaryStorageKey(), diaries)
+  writeEncrypted(diaryStorageKey(), diaries.map(normalizeDiaryForStorage))
 }
 
-function queueServerSync() {
-  if (!getAuthToken()) return
-  pushServerDiaries().catch(() => {
-    uni.setStorageSync('moo_vibe_pending_sync_v1', '1')
-  })
+function sortedDiaries(diaries) {
+  return diaries.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+}
+
+function requireDatabaseLogin() {
+  if (!getAuthToken()) {
+    throw new Error('请先登录账号，日记会直接保存到数据库')
+  }
+}
+
+async function readServerDiaries() {
+  requireDatabaseLogin()
+  const result = await request('/api/diaries')
+  return Array.isArray(result.diaries) ? result.diaries.map(normalizeDiaryForStorage) : []
 }
 
 export function getDiaries(options = {}) {
-  const diaries = readDiaries()
-  const sorted = Array.isArray(diaries)
-    ? diaries.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    : []
-  return options.includeHidden ? sorted : sorted.filter(item => !item.hidden)
+  const diaries = sortedDiaries(readDiaries()).map(normalizeDiaryForDisplay)
+  return options.includeHidden ? diaries : diaries.filter(item => !item.hidden)
 }
 
 export function getAllDiaries() {
@@ -63,10 +86,12 @@ export function getDiary(id) {
   return getAllDiaries().find(item => item.id === id) || null
 }
 
-export function saveDiary(input) {
+export async function saveDiary(input) {
+  requireDatabaseLogin()
+
   const now = new Date().toISOString()
-  const diaries = getAllDiaries()
-  const payload = {
+  const diaries = await readServerDiaries()
+  const payload = normalizeDiaryForStorage({
     moodId: 'calm',
     weatherId: 'sunny',
     content: '',
@@ -75,7 +100,7 @@ export function saveDiary(input) {
     hidden: false,
     date: toDateKey(),
     ...input
-  }
+  })
 
   let saved = null
   if (payload.id) {
@@ -106,42 +131,24 @@ export function saveDiary(input) {
   }
 
   writeDiaries(diaries)
-  queueServerSync()
-  return saved
+  await pushServerDiaries()
+  return normalizeDiaryForDisplay(saved)
 }
 
-export function deleteDiary(id) {
-  const diaries = getAllDiaries()
-  writeDiaries(diaries.filter(item => item.id !== id))
-  queueServerSync()
+export async function deleteDiary(id) {
+  requireDatabaseLogin()
+  const result = await request(`/api/diaries/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  })
+  if (Array.isArray(result.diaries)) {
+    replaceDiaries(result.diaries)
+  } else {
+    writeDiaries(readDiaries().filter(item => item.id !== id))
+  }
 }
 
 export function getDiariesByDate(date, options = {}) {
   return getDiaries(options).filter(item => item.date === date)
-}
-
-export function getDiaryDates(year, month) {
-  const prefix = `${year}-${String(month).padStart(2, '0')}`
-  return new Set(getDiaries().filter(item => item.date.startsWith(prefix)).map(item => item.date))
-}
-
-export function exportBackup() {
-  return JSON.stringify({
-    app: 'moo-vibe-diary',
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    diaries: getAllDiaries()
-  }, null, 2)
-}
-
-export function importBackup(text) {
-  const parsed = JSON.parse(text)
-  if (!Array.isArray(parsed.diaries)) {
-    throw new Error('备份内容不正确')
-  }
-  writeDiaries(parsed.diaries)
-  queueServerSync()
-  return parsed.diaries.length
 }
 
 export function replaceDiaries(diaries) {
@@ -177,58 +184,74 @@ export function disablePassword() {
   uni.removeStorageSync(STORAGE_KEYS.UNLOCKED_AT)
 }
 
-export async function syncToCloud() {
-  return pushServerDiaries()
+const PENDING_SYNC_KEY = 'moo_vibe_pending_sync_v1'
+
+export function hasPendingSync() {
+  return uni.getStorageSync(PENDING_SYNC_KEY) === '1'
 }
 
-export async function pushServerDiaries() {
-  if (!getAuthToken()) {
-    throw new Error('请先登录账号')
+export function markPendingSync() {
+  uni.setStorageSync(PENDING_SYNC_KEY, '1')
+}
+
+export function clearPendingSync() {
+  uni.removeStorageSync(PENDING_SYNC_KEY)
+}
+
+export async function flushPendingSync() {
+  if (!hasPendingSync()) return 0
+  if (!getAuthToken()) return 0
+  try {
+    const result = await pushServerDiaries()
+    return result?.count || 0
+  } catch {
+    return 0
   }
-  const result = await request('/api/diaries', {
+}
+
+export function pushServerDiaries() {
+  requireDatabaseLogin()
+  return request('/api/diaries', {
     method: 'PUT',
     data: {
-      diaries: getAllDiaries()
+      diaries: sortedDiaries(readDiaries())
     }
-  })
-  uni.removeStorageSync('moo_vibe_pending_sync_v1')
-  return result
-}
-
-export async function pullServerDiaries() {
-  if (!getAuthToken()) {
-    throw new Error('请先登录账号')
-  }
-  const result = await request('/api/diaries')
-  const count = replaceDiaries(result.diaries || [])
-  uni.removeStorageSync('moo_vibe_pending_sync_v1')
-  return count
-}
-
-export async function mergeServerDiaries(serverDiaries = []) {
-  if (!Array.isArray(serverDiaries)) return getAllDiaries().length
-  const map = new Map()
-  getAllDiaries().concat(serverDiaries).forEach(item => {
-    const existed = map.get(item.id)
-    if (!existed || new Date(item.updatedAt || item.createdAt) > new Date(existed.updatedAt || existed.createdAt)) {
-      map.set(item.id, item)
+  }).then(result => {
+    if (Array.isArray(result.diaries)) {
+      replaceDiaries(result.diaries)
     }
+    clearPendingSync()
+    return result
+  }).catch(error => {
+    markPendingSync()
+    throw error
   })
-  const merged = Array.from(map.values())
-  writeDiaries(merged)
-  await pushServerDiaries()
-  return merged.length
 }
 
 export async function mergeLatestFromServer(options = {}) {
   if (!getAuthToken()) return 0
   const now = Date.now()
   const last = Number(uni.getStorageSync(STORAGE_KEYS.LAST_AUTO_SYNC) || 0)
-  if (!options.force && now - last < 60 * 1000) {
+  if (!options.force && now - last < 10 * 1000) {
     return getAllDiaries().length
   }
   const result = await request('/api/diaries')
-  const count = await mergeServerDiaries(result.diaries || [])
+  const serverDiaries = Array.isArray(result.diaries) ? result.diaries : []
+  const merged = mergeDiaryLists(readDiaries(), serverDiaries)
+  replaceDiaries(merged)
   uni.setStorageSync(STORAGE_KEYS.LAST_AUTO_SYNC, now)
-  return count
+  return merged.length
+}
+
+// Merge two diary lists: for each id, keep the version with newer updatedAt.
+// Entries present in only one list are included as-is.
+function mergeDiaryLists(local, server) {
+  const merged = new Map(local.map(d => [d.id, d]))
+  for (const item of server) {
+    const existing = merged.get(item.id)
+    if (!existing || (item.updatedAt || '') >= (existing.updatedAt || '')) {
+      merged.set(item.id, item)
+    }
+  }
+  return Array.from(merged.values())
 }

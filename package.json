@@ -8,7 +8,8 @@
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:mp-weixin": "uni build -p mp-weixin",
     "dev:h5": "uni -p h5",
-    "build:h5": "uni build -p h5"
+    "build:h5": "uni build -p h5",
+    "start": "node server/server.js"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-5000720260410001",
