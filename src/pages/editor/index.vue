@@ -1,8 +1,14 @@
 <template>
   <view class="page">
-    <view class="date-line" @click="pickToday">
-      <text>{{ formatDate(form.date) }}</text>
-      <text class="date-hint">点击回到今天</text>
+    <view class="date-card">
+      <picker class="date-picker" mode="date" :value="form.date" :end="todayKey" @change="changeDate">
+        <view class="date-content">
+          <text class="date-label">日记日期</text>
+          <text class="date-value">{{ formatDate(form.date) }}</text>
+          <text class="date-hint">点击选择日期，默认今天</text>
+        </view>
+      </picker>
+      <button v-if="form.date !== todayKey" class="today-button" @click="pickToday">今天</button>
     </view>
 
     <view v-if="draftStatus" class="draft-tip">
@@ -47,7 +53,7 @@
         v-model="form.content"
         class="textarea"
         maxlength="-1"
-        placeholder="把今天放在这里..."
+        :placeholder="textareaPlaceholder"
         auto-height
       />
     </view>
@@ -133,6 +139,12 @@ const selectableTags = computed(() => {
   return Array.from(new Set(all.filter(Boolean)))
 })
 
+const todayKey = toDateKey()
+
+const textareaPlaceholder = computed(() => (
+  form.date === todayKey ? '把今天放在这里...' : '把这一天放在这里...'
+))
+
 function refreshManagedTags() {
   managedTags.value = getManagedTags(getAllDiaries())
 }
@@ -197,8 +209,31 @@ function fill(entry) {
   tagText.value = form.tags.filter(tag => !baseTags.has(tag)).join(',')
 }
 
+function updateDraftKeyForDate(date) {
+  if (form.id) return
+  const nextKey = currentDraftKey('', date)
+  if (draftKey.value && draftKey.value !== nextKey) {
+    uni.removeStorageSync(draftKey.value)
+  }
+  draftKey.value = nextKey
+}
+
+function setDiaryDate(date) {
+  if (!date) return
+  if (isFutureDate(date)) {
+    uni.showToast({ title: '未来日期不能补记', icon: 'none' })
+    return
+  }
+  form.date = date
+  updateDraftKeyForDate(date)
+}
+
+function changeDate(event) {
+  setDiaryDate(event.detail.value)
+}
+
 function pickToday() {
-  form.date = toDateKey()
+  setDiaryDate(todayKey)
 }
 
 function composeTags() {
@@ -363,20 +398,66 @@ watch(
   box-sizing: border-box;
 }
 
-.date-line {
+.date-card {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  padding: 10rpx 4rpx 26rpx;
+  gap: 18rpx;
+  margin-bottom: 20rpx;
+  padding: 24rpx 26rpx;
+  border-radius: $moo-radius;
   color: $moo-text;
-  font-size: 36rpx;
-  font-weight: 700;
+  background: $moo-white;
+  box-shadow: $moo-shadow;
+}
+
+.date-picker {
+  min-width: 0;
+  flex: 1;
+}
+
+.date-content {
+  min-width: 0;
+}
+
+.date-label,
+.date-value,
+.date-hint {
+  display: block;
+}
+
+.date-label {
+  color: $moo-muted;
+  font-size: 22rpx;
+  font-weight: 600;
+}
+
+.date-value {
+  margin-top: 8rpx;
+  color: $moo-text;
+  font-size: 34rpx;
+  font-weight: 800;
 }
 
 .date-hint {
+  margin-top: 8rpx;
   color: $moo-muted;
   font-size: 23rpx;
   font-weight: 400;
+}
+
+.today-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 110rpx;
+  height: 62rpx;
+  border-radius: 999px;
+  color: $moo-primary;
+  background: $moo-primary-light;
+  font-size: 24rpx;
+  font-weight: 700;
 }
 
 .draft-tip {

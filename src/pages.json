@@ -3,7 +3,7 @@
     {
       "path": "pages/today/index",
       "style": {
-        "navigationBarTitleText": "Moo 日记",
+        "navigationBarTitleText": "临风日记",
         "navigationBarBackgroundColor": "#FFFFFF",
         "navigationBarTextStyle": "black",
         "backgroundColor": "#F8FAF9",
@@ -68,6 +68,15 @@
       "path": "pages/analysis/index",
       "style": {
         "navigationBarTitleText": "情绪数据",
+        "navigationBarBackgroundColor": "#FFFFFF",
+        "navigationBarTextStyle": "black",
+        "backgroundColor": "#F8FAF9"
+      }
+    },
+    {
+      "path": "pages/account/index",
+      "style": {
+        "navigationBarTitleText": "账号管理",
         "navigationBarBackgroundColor": "#FFFFFF",
         "navigationBarTextStyle": "black",
         "backgroundColor": "#F8FAF9"

@@ -700,6 +700,6 @@ async function handle(req, res) {
 const server = http.createServer(handle)
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Moo diary API running at http://localhost:${PORT}`)
+  console.log(`LinFeng diary API running at http://localhost:${PORT}`)
   console.log(`SQLite database: ${DB_FILE}`)
 })

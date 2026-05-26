@@ -1,7 +1,7 @@
 {
   "name": "moo-vibe-diary",
   "version": "1.0.0",
-  "description": "仿 Moo 日记的自用治愈记录微信小程序",
+  "description": "临风日记自用治愈记录微信小程序",
   "scripts": {
     "server": "node server/server.js",
     "dev:full": "node server/dev-full.js",

@@ -1,6 +1,6 @@
 {
-  "name": "Moo Vibe Diary",
-  "appid": "__UNI__MOO_DIARY",
+  "name": "临风日记",
+  "appid": "__UNI__LINFENG_DIARY",
   "description": "纯自用治愈日记小程序",
   "versionName": "1.0.0",
   "versionCode": "100",
@@ -15,6 +15,6 @@
     "usingComponents": true
   },
   "h5": {
-    "title": "Moo Vibe Diary"
+    "title": "临风日记"
   }
 }
