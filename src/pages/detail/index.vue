@@ -293,6 +293,9 @@ onShow(async () => {
   --paper-texture-b: rgba(220, 239, 230, 0.32);
   --paper-texture-c: rgba(221, 232, 242, 0.24);
   --paper-line: rgba(111, 149, 191, 0.12);
+  --paper-rule-height: 64rpx;
+  --paper-rule-gap: 46rpx;
+  --paper-rule-mark: 47rpx;
   --paper-margin: rgba(247, 220, 227, 0.9);
   --paper-corner: #f1e8cc;
   --tape-left-bg: rgba(247, 220, 227, 0.7);
@@ -363,14 +366,16 @@ onShow(async () => {
   position: absolute;
   left: 58rpx;
   right: 34rpx;
-  top: 92rpx;
-  bottom: 50rpx;
+  top: 62rpx;
+  bottom: 54rpx;
   background: repeating-linear-gradient(
     to bottom,
     transparent 0,
-    transparent 58rpx,
-    var(--paper-line) 59rpx,
-    transparent 60rpx
+    transparent var(--paper-rule-gap),
+    var(--paper-line) var(--paper-rule-gap),
+    var(--paper-line) var(--paper-rule-mark),
+    transparent var(--paper-rule-mark),
+    transparent var(--paper-rule-height)
   );
 }
 
@@ -654,7 +659,7 @@ onShow(async () => {
   display: block;
   color: #3f4b4a;
   font-size: 32rpx;
-  line-height: 2.02;
+  line-height: var(--paper-rule-height);
   white-space: pre-wrap;
   word-break: break-word;
   letter-spacing: 0;
