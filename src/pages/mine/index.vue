@@ -146,6 +146,7 @@ const accountPassword = ref('')
 const customTags = ref([])
 const newTag = ref('')
 const keypadNumbers = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
+const activeUserId = ref('')
 
 const pinTitle = computed(() => {
   if (pinMode.value === 'set') return '设置本机隐私锁'
@@ -158,11 +159,25 @@ const pinSubtitle = computed(() => {
 })
 
 function refresh() {
-  user.value = currentUser()
+  const nextUser = currentUser()
+  const nextUserId = nextUser?.id || ''
+  if (nextUserId !== activeUserId.value) {
+    closeHiddenDiaries()
+    accountPassword.value = ''
+    pinPanelVisible.value = false
+    pinInput.value = ''
+  }
+  activeUserId.value = nextUserId
+  user.value = nextUser
   passwordEnabled.value = isPasswordEnabled()
   const diaries = getAllDiaries()
   total.value = diaries.filter(item => !item.hidden).length
   hiddenTotal.value = diaries.filter(item => item.hidden).length
+  if (!user.value || !hiddenTotal.value) {
+    closeHiddenDiaries()
+  } else if (showHiddenDiaries.value) {
+    hiddenDiaries.value = diaries.filter(item => item.hidden)
+  }
   customTags.value = getCustomTags()
 }
 
