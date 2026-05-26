@@ -593,6 +593,11 @@ async function handle(req, res) {
       return
     }
 
+    // Serve the H5 app before API authentication. Only /api routes below require login.
+    if (!url.pathname.startsWith('/api/')) {
+      if (sendStatic(res, url.pathname)) return
+    }
+
     const user = getAuthedUser(req)
     if (!user) {
       send(res, 401, { message: '请先登录' })
@@ -687,9 +692,6 @@ async function handle(req, res) {
       send(res, 200, { ok: true, count: body.diaries.length, diaries: getDiaries(user.id) })
       return
     }
-
-    // Serve production H5 build for non-API paths
-    if (sendStatic(res, url.pathname)) return
 
     send(res, 404, { message: '接口不存在' })
   } catch (error) {
