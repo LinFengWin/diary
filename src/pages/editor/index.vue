@@ -277,12 +277,8 @@ function chooseImages() {
   })
 }
 
-function displayImages() {
-  return form.images.map(normalizeAssetUrl)
-}
-
 function previewImage(index) {
-  const urls = displayImages()
+  const urls = form.images.map(normalizeAssetUrl)
   uni.previewImage({
     current: urls[index],
     urls
