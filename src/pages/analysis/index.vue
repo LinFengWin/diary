@@ -263,23 +263,46 @@ const monthlySummary = computed(() => {
 function refresh() {
   diaries.value = getDiaries()
   nextTick(() => {
-    drawTrend()
-    drawPie()
+    drawCharts()
   })
 }
 
-function drawTrend() {
+function drawCharts() {
+  measureCanvas('#trendCanvas', { width: 315, height: 170 }, drawTrend)
+  measureCanvas('#pieCanvas', { width: 320, height: 190 }, drawPie)
+}
+
+function measureCanvas(selector, fallback, callback) {
+  try {
+    uni.createSelectorQuery()
+      .select(selector)
+      .boundingClientRect(rect => {
+        callback({
+          width: Math.max(1, Math.round(rect?.width || fallback.width)),
+          height: Math.max(1, Math.round(rect?.height || fallback.height))
+        })
+      })
+      .exec()
+  } catch {
+    callback(fallback)
+  }
+}
+
+function drawTrend({ width, height }) {
   const ctx = uni.createCanvasContext('trendCanvas')
-  const width = 315
-  const height = 170
+  const paddingX = 24
+  const top = 22
+  const bottom = height - 28
+  const chartHeight = bottom - top
+  const chartWidth = width - paddingX * 2
   ctx.clearRect(0, 0, width, height)
   ctx.setStrokeStyle('#E8EEF3')
   ctx.setLineWidth(1)
   for (let i = 0; i < 4; i += 1) {
-    const y = 22 + i * 38
+    const y = top + i * (chartHeight / 3)
     ctx.beginPath()
-    ctx.moveTo(12, y)
-    ctx.lineTo(width - 12, y)
+    ctx.moveTo(paddingX, y)
+    ctx.lineTo(width - paddingX, y)
     ctx.stroke()
   }
 
@@ -299,34 +322,34 @@ function drawTrend() {
   ctx.setLineWidth(3)
   ctx.beginPath()
   points.forEach((point, index) => {
-    const x = 22 + index * 45
-    const y = point.value ? 150 - point.value * 24 : 150
+    const x = paddingX + index * (chartWidth / 6)
+    const y = point.value ? bottom - ((point.value - 1) / 4) * chartHeight : bottom
     if (index === 0) ctx.moveTo(x, y)
     else ctx.lineTo(x, y)
   })
   ctx.stroke()
 
   points.forEach((point, index) => {
-    const x = 22 + index * 45
-    const y = point.value ? 150 - point.value * 24 : 150
+    const x = paddingX + index * (chartWidth / 6)
+    const y = point.value ? bottom - ((point.value - 1) / 4) * chartHeight : bottom
     ctx.setFillStyle(point.value ? '#6F95BF' : '#CBD6DE')
     ctx.beginPath()
     ctx.arc(x, y, 4, 0, Math.PI * 2)
     ctx.fill()
     ctx.setFillStyle('#999999')
     ctx.setFontSize(10)
-    ctx.fillText(point.label, x - 14, 166)
+    ctx.fillText(point.label, x - 14, height - 8)
   })
   ctx.draw()
 }
 
-function drawPie() {
+function drawPie({ width, height }) {
   const ctx = uni.createCanvasContext('pieCanvas')
   const totalCount = moodCounts.value.reduce((sum, item) => sum + item.count, 0)
-  const cx = 160
-  const cy = 92
-  const radius = 68
-  ctx.clearRect(0, 0, 320, 190)
+  const cx = width / 2
+  const cy = height / 2
+  const radius = Math.min(78, Math.max(48, Math.min(width, height) * 0.34))
+  ctx.clearRect(0, 0, width, height)
 
   if (!totalCount) {
     ctx.setFillStyle('#E8EEF3')

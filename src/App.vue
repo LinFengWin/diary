@@ -42,7 +42,14 @@ button::after {
 
 @media screen and (min-width: 768px) {
   :root {
-    --moo-web-width: 430px;
+    --moo-web-width: clamp(760px, 68vw, 860px);
+  }
+
+  /* 修复桌面端 rpx→rem 换算：uni-app 以视口宽度为基准，
+     但页面容器被约束在 430px，导致所有元素过大。
+     这里强制以 430px 为基准重新计算。 */
+  html {
+    font-size: calc(430 / 750 * 32 * 1px) !important;
   }
 
   html,
@@ -71,6 +78,15 @@ button::after {
     box-shadow: 0 24px 80px rgba(61, 77, 92, 0.13);
   }
 
+  .uni-page-head {
+    left: calc((100vw - var(--moo-web-width)) / 2) !important;
+    right: auto !important;
+    width: var(--moo-web-width) !important;
+    max-width: var(--moo-web-width) !important;
+    background-color: #ffffff !important;
+    box-shadow: 0 10px 30px rgba(61, 77, 92, 0.06);
+  }
+
   uni-tabbar.uni-tabbar-bottom,
   .uni-tabbar-bottom {
     position: fixed !important;
@@ -81,7 +97,6 @@ button::after {
     max-width: var(--moo-web-width) !important;
     transform: translateX(-50%) !important;
     z-index: 9999 !important;
-    display: block !important;
   }
 
   uni-tabbar.uni-tabbar-bottom .uni-tabbar,
@@ -94,7 +109,6 @@ button::after {
     max-width: none !important;
     height: 64px !important;
     transform: none !important;
-    display: flex !important;
     background: #ffffff !important;
     box-shadow: 0 -10px 30px rgba(61, 77, 92, 0.08);
   }
@@ -104,8 +118,8 @@ button::after {
   }
 
   .fab {
-    right: max(34px, calc((100vw - var(--moo-web-width)) / 2 + 28px)) !important;
-    bottom: 86px !important;
+    right: max(34px, calc((100vw - var(--moo-web-width)) / 2 + 32px)) !important;
+    bottom: 118px !important;
   }
 
   ::-webkit-scrollbar {
@@ -120,7 +134,7 @@ button::after {
 
 @media screen and (min-width: 768px) and (max-width: 900px) {
   :root {
-    --moo-web-width: min(430px, calc(100vw - 32px));
+    --moo-web-width: calc(100vw - 32px);
   }
 }
 

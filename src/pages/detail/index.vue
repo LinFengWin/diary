@@ -1,6 +1,11 @@
 <template>
   <view class="page">
     <view v-if="entry" class="detail">
+      <button class="back-chip" @click="goBack">
+        <text class="back-arrow">←</text>
+        <text>返回</text>
+      </button>
+
       <view class="hero">
         <view class="paper-pin"></view>
         <view>
@@ -66,6 +71,14 @@ function refresh() {
   entry.value = diaryId.value ? getDiary(diaryId.value) : null
 }
 
+function goBack() {
+  if (getCurrentPages().length > 1) {
+    uni.navigateBack()
+    return
+  }
+  uni.switchTab({ url: '/pages/today/index' })
+}
+
 function editDiary() {
   uni.navigateTo({ url: `/pages/editor/index?id=${entry.value.id}` })
 }
@@ -93,6 +106,28 @@ onShow(async () => {
   min-height: 100vh;
   padding: 30rpx;
   box-sizing: border-box;
+}
+
+.back-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  width: auto;
+  height: 64rpx;
+  margin: 0 0 20rpx;
+  padding: 0 24rpx;
+  border-radius: 999px;
+  color: $moo-primary;
+  background: $moo-white;
+  box-shadow: $moo-shadow;
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.back-arrow {
+  font-size: 30rpx;
+  line-height: 1;
 }
 
 .hero {
@@ -262,5 +297,30 @@ onShow(async () => {
   margin-top: 10rpx;
   font-size: 24rpx;
   line-height: 1.55;
+}
+
+@media screen and (min-width: 768px) {
+  .page {
+    padding: 24px 32px 56px;
+  }
+
+  .detail,
+  .empty {
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .back-chip {
+    height: 38px;
+    margin-bottom: 16px;
+    padding: 0 16px;
+    gap: 6px;
+    font-size: 14px;
+  }
+
+  .back-arrow {
+    font-size: 18px;
+  }
 }
 </style>

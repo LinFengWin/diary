@@ -549,7 +549,7 @@ onPullDownRefresh(() => {
 .fab {
   position: fixed;
   right: 34rpx;
-  bottom: 84rpx;
+  bottom: 136rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -620,6 +620,47 @@ onPullDownRefresh(() => {
 
   .card-content {
     min-height: 0;
+  }
+}
+
+@media screen and (min-width: 1024px) {
+  .page {
+    padding: 26px 34px 126px;
+  }
+
+  .top,
+  .today-card,
+  .quick-row,
+  .section-head,
+  .list,
+  .empty {
+    max-width: 760px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .top {
+    margin-bottom: 18px;
+  }
+
+  .today-card {
+    padding: 20px 24px;
+  }
+
+  .list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 16px;
+  }
+
+  .diary-card {
+    margin-bottom: 0;
+    padding: 16px;
+  }
+
+  .thumb {
+    width: 88px;
+    height: 88px;
   }
 }
 </style>
