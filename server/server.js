@@ -4,6 +4,7 @@ const http = require('http')
 const os = require('os')
 const path = require('path')
 const { DatabaseSync } = require('node:sqlite')
+const logger = require('./logger')
 
 const PORT = Number(process.env.MOO_API_PORT || 8787)
 const DATA_DIR = path.join(__dirname, 'data')
@@ -119,7 +120,9 @@ function migrateLegacyJson(db) {
     } catch (_) {
       // Ignore rollback failures during best-effort migration.
     }
-    console.warn(`Legacy JSON migration skipped: ${error.message}`)
+    logger.warn('legacy_json_migration_skipped', {
+      errorMessage: error.message
+    })
   }
 }
 
@@ -483,6 +486,8 @@ function getAuthedUser(req) {
 }
 
 async function handle(req, res) {
+  logger.requestLogger(req, res)
+
   if (req.method === 'OPTIONS') {
     send(res, 204, {})
     return
@@ -551,6 +556,8 @@ async function handle(req, res) {
         user.id,
         new Date().toISOString()
       )
+      req.userId = user.id
+      logger.info('user_registered', { userId: user.id })
       send(res, 200, { token, user: publicUser(user), diaries: [] })
       return
     }
@@ -569,6 +576,8 @@ async function handle(req, res) {
         user.id,
         new Date().toISOString()
       )
+      req.userId = user.id
+      logger.info('user_login_succeeded', { userId: user.id })
       send(res, 200, { token, user: publicUser(user), diaries: getDiaries(user.id) })
       return
     }
@@ -607,6 +616,8 @@ async function handle(req, res) {
       return
     }
 
+    req.userId = user.id
+
     if (req.method === 'GET' && url.pathname === '/api/me') {
       send(res, 200, { user: publicUser(user), diaries: getDiaries(user.id) })
       return
@@ -639,12 +650,18 @@ async function handle(req, res) {
         send(res, 400, { message: 'weatherId 不正确' })
         return
       }
-      send(res, 200, { weather: saveAccountWeather(user.id, date, weatherId) })
+      const weather = saveAccountWeather(user.id, date, weatherId)
+      logger.info('weather_saved', { userId: user.id, date, weatherId })
+      send(res, 200, { weather })
       return
     }
 
     if (req.method === 'POST' && url.pathname === '/api/backup') {
       const backup = createSqliteBackup()
+      logger.info('sqlite_backup_created', {
+        userId: user.id,
+        fileName: backup.fileName
+      })
       send(res, 200, { ok: true, ...backup })
       return
     }
@@ -668,6 +685,12 @@ async function handle(req, res) {
       const filePath = path.join(userDir, fileName)
       fs.writeFileSync(filePath, filePart.content)
 
+      logger.info('image_uploaded', {
+        userId: user.id,
+        fileName,
+        bytes: filePart.content.length,
+        contentType: filePart.contentType
+      })
       send(res, 200, {
         url: `/uploads/${user.id}/${fileName}`
       })
@@ -681,6 +704,11 @@ async function handle(req, res) {
         return
       }
       const deleted = deleteDiary(user.id, diaryId)
+      logger.info('diary_deleted', {
+        userId: user.id,
+        diaryId,
+        deleted
+      })
       send(res, 200, { ok: true, deleted, diaries: getDiaries(user.id) })
       return
     }
@@ -692,12 +720,21 @@ async function handle(req, res) {
         return
       }
       replaceDiaries(user.id, body.diaries)
+      logger.info('diaries_replaced', {
+        userId: user.id,
+        count: body.diaries.length
+      })
       send(res, 200, { ok: true, count: body.diaries.length, diaries: getDiaries(user.id) })
       return
     }
 
     send(res, 404, { message: '接口不存在' })
   } catch (error) {
+    logger.error('request_failed', error, {
+      method: req.method,
+      path: url.pathname,
+      userId: req.userId
+    })
     send(res, 500, { message: error.message || '服务器错误' })
   }
 }
@@ -705,6 +742,11 @@ async function handle(req, res) {
 const server = http.createServer(handle)
 
 server.listen(PORT, '0.0.0.0', () => {
+  logger.info('server_started', {
+    port: PORT,
+    databaseFile: DB_FILE,
+    logDir: logger.LOG_DIR
+  })
   console.log(`LinFeng diary API running at http://localhost:${PORT}`)
   console.log(`SQLite database: ${DB_FILE}`)
 })
