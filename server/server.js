@@ -183,15 +183,18 @@ function sendStatic(res, urlPath) {
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = ''
+    const chunks = []
+    let size = 0
     req.on('data', chunk => {
-      body += chunk
-      if (body.length > 20 * 1024 * 1024) {
+      chunks.push(chunk)
+      size += chunk.length
+      if (size > 20 * 1024 * 1024) {
         req.destroy()
         reject(new Error('请求内容太大'))
       }
     })
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8')
       if (!body) {
         resolve({})
         return
